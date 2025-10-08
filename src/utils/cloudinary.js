@@ -10,7 +10,7 @@ cloudinary.config({
 const uploadImage = async (filePath) => {
     try {
         if(!filePath){
-            throw new Error("File path is required");
+            throw new Error("File path is required"); 
         }
         const response = await cloudinary.uploader.upload(filePath, {
             resource_type: 'auto',

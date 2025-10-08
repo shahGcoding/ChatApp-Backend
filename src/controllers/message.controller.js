@@ -60,6 +60,55 @@ const getConversation = asyncHandler(async (req, res) => {
 
 });
 
+const getUserConversations = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  if (!userId) {
+    throw new ApiError(400, "UserId is required");
+  }
+
+  // 1. Fetch all messages where user is either sender or receiver
+  const messages = await Message.find({
+    $or: [{ senderId: userId }, { receiverId: userId }],
+  }).sort({ createdAt: -1 });
+
+  // 2. Group by contactId (the other participant)
+  const conversations = {};
+  messages.forEach((msg) => {
+    const contactId =
+      msg.senderId.toString() === userId.toString()
+        ? msg.receiverId.toString()
+        : msg.senderId.toString();
+
+    // Store only the latest message for each contact
+    if (!conversations[contactId]) {
+      conversations[contactId] = msg;
+    }
+  });
+
+  // 3. Populate contact user details
+  const contactIds = Object.keys(conversations);
+  const contacts = await User.find({ _id: { $in: contactIds } }).select(
+    "username email"
+  );
+
+  // 4. Combine last message with contact info
+  const result = contactIds.map((contactId) => {
+    const lastMessage = conversations[contactId];
+    const contact = contacts.find((c) => c._id.toString() === contactId);
+
+    return {
+      contact: contact || { _id: contactId }, // fallback in case user deleted
+      lastMessage,
+    };
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, result, "User conversations fetched successfully"));
+});
+
+
 const markAsRead = asyncHandler(async (req, res) => {
   const { userId, contactId } = req.body;
 
@@ -108,4 +157,4 @@ const deleteMessage = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, deleted, "Message deleted successfully"));
 });
 
-export { sendMessage, getConversation, markAsRead, getUserChats, deleteMessage };
+export { sendMessage, getConversation, getUserConversations, markAsRead, getUserChats, deleteMessage };

@@ -2,8 +2,10 @@ import { User } from "../models/user.model.js";
 import { ApiResponse } from "../utils/ApiResposnse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { uploadImage, deleteImage } from "../utils/cloudinary.js";
 import { sendVerificationCode, WelcomeEmail } from "../middlewares/email.js";
 import jwt from "jsonwebtoken";
+
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -40,28 +42,84 @@ const registerUser = asyncHandler(async (req, res) => {
     100000 + Math.random() * 900000
   ).toString();
 
-  const user = await User.create({
-    username,
-    email,
-    password,
-    verificationCode,
-    status: "offline",
-    expireAt: new Date(Date.now() + 5 * 60 * 1000),
-  });
+  // let avatarUrl = "";
+  // if (req.file){
+  //   const result = await uploadImage(req.file.path);
+  //   avatarUrl = result.secure_url;
+    
+  //   import("fs").then(fs => {
+  //     if (fs.exitsSync(req.file.path)) fs.unlinkSync(req.file.path);
+  //   });
 
-  sendVerificationCode(user.email, verificationCode);
+  // }
 
-  const createdUser = await User.findById(user._id).select(
-    "-password -refreshToken"
-  );
-  if (!createdUser) {
-    throw new ApiError(404, "User not found");
+   let avatarUrl = "";
+  try {
+    
+    if (req.file) {
+      const result = await uploadImage(req.file.path);
+      avatarUrl = result.secure_url;
+
+      // Remove local file
+      import("fs").then(fs => {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      });
+    }
+
+    const user = await User.create({
+      username,
+      email,
+      password,
+      avatar: avatarUrl || "",
+      verificationCode,
+      status: "offline",
+      expireAt: new Date(Date.now() + 5 * 60 * 1000),
+    });
+
+    // Send email verification code
+    await sendVerificationCode(user.email, verificationCode);
+
+    const createdUser = await User.findById(user._id).select(
+      "-password -refreshToken"
+    );
+
+    if (!createdUser) {
+      throw new ApiError(404, "User not found after creation");
+    }
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, createdUser, "User registered successfully"));
+  } catch (error) {
+    console.error("Error during user registration:", error);
+    throw new ApiError(500, "Error registering user");
   }
-
-  return res
-    .status(201)
-    .json(new ApiResponse(201, createdUser, "User Register Successfuly"));
 });
+
+
+
+//   const user = await User.create({
+//     username,
+//     email,
+//     password,
+//     verificationCode,
+//     status: "offline",
+//     expireAt: new Date(Date.now() + 5 * 60 * 1000),
+//   });
+
+//   sendVerificationCode(user.email, verificationCode);
+
+//   const createdUser = await User.findById(user._id).select(
+//     "-password -refreshToken"
+//   );
+//   if (!createdUser) {
+//     throw new ApiError(404, "User not found");
+//   }
+
+//   return res
+//     .status(201)
+//     .json(new ApiResponse(201, createdUser, "User Register Successfuly"));
+// });
 
 const verifyEmail = asyncHandler(async (req, res) => {
   const { code } = req.body;
