@@ -1,12 +1,14 @@
 import { Message } from "../models/message.model.js";
+import { uploadImage } from "../utils/cloudinary.js";
+import fs from "fs";
 import { ApiResponse } from "../utils/ApiResposnse.js";
 import { ApiError } from "../utils/ApiError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { User } from "../models/user.model.js";
 
 const sendMessage = asyncHandler(async (req, res) => {
-  const { senderId, receiverId, message } = req.body;
-  if (!senderId || !receiverId || !message) {
+  const { senderId, receiverId, message, type } = req.body || {};
+  if (!senderId || !receiverId) {
     throw new ApiError(400, "All fields are required");
   }
 
@@ -20,10 +22,29 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Receiver not found");
   }
 
+  let fileUrl = null;
+  let finalType = type || "text";
+
+  if(req.file){
+    try {
+      const result = await uploadImage(req.file.path);
+      fileUrl = result.secure_url;
+      finalType = result.resource_type;
+    } catch (error) {
+      if(req.file?.path && fs.existsSync(req.file.path)){
+        fs.unlinkSync(req.file.path);
+      }
+      console.error("Error uploading file:", error);
+      throw new ApiError(500, "Error uploading file");
+    }
+  }
+
   const newMessage = await Message.create({
     senderId,
     receiverId,
-    message,
+    message: message || "",
+    type: finalType,
+    fileUrl,
     isRead: false,
   });
 
@@ -110,22 +131,37 @@ const getUserConversations = asyncHandler(async (req, res) => {
 
 
 const markAsRead = asyncHandler(async (req, res) => {
-  const { userId, contactId } = req.body;
+   try {
+    const { userId, contactId } = req.params;
 
-  const result = await Message.updateMany(
-    { senderId: contactId, receiverId: userId, isRead: false },
-    { $set: { isRead: true } }
-  );
+    if (!userId || !contactId) {
+      return res.status(400).json({ message: "Missing parameters" });
+    }
 
-  // Optionally notify the sender about read receipts
-  if (req.io){
-  req.io.to(contactId).emit('messagesRead', { byUser: userId });
+    // ✅ update all messages where receiver is user and sender is contact
+    const result = await Message.updateMany(
+      { senderId: contactId, receiverId: userId, isRead: false },
+      { $set: { isRead: true } }
+    );
+
+    // ✅ Optional: emit to sender for live read receipts
+    req.io.to(contactId).emit("messagesRead", { receiverId: userId  });
+
+    res.status(200).json({
+      success: true,
+      message: "Messages marked as read",
+      data: result,
+    });
+  } catch (error) {
+    console.error("❌ Error in markAsRead:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: error.message,
+    });
   }
-
-  return res
-    .status(200)
-    .json(new ApiResponse(200, result, "Messages marked as read"));
 });
+
 
 const getUserChats = asyncHandler(async (req, res) => {
   const { userId } = req.params;

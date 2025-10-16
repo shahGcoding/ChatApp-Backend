@@ -1,30 +1,11 @@
 
 import dotenv from 'dotenv';
 import connectDB from './db/index.js';
-import { app } from './app.js';
-import http from 'http';
-import { Server } from 'socket.io';
+import { app, server, io } from './app.js';
+import { Message } from './models/message.model.js';
 
 // Load environment variables
 dotenv.config({ path: './.env' });
-
-// Create an HTTP server from Express app
-const server = http.createServer(app);
-
-// Attach Socket.IO to the HTTP server
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:5173', // your frontend URL
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
-});
-
-// Attach io to every request for controller access
-app.use((req, res, next) => {
-  req.io = io;
-  next();
-});
 
 const onlineUsers = new Map();
 
@@ -54,6 +35,62 @@ io.on('connection', (socket) => {
 
     // (Optional) Save to MongoDB here
   });
+
+  //  socket.on('markMessagesRead', async ({ userId, contactId }) => {
+  //   try {
+  //     if (!userId || !contactId) return;
+
+  //     // Mark all unread messages from contact → user as read
+  //     await Message.updateMany(
+  //       { senderId: contactId, receiverId: userId, isRead: false },
+  //       { $set: { isRead: true } }
+  //     );
+
+  //     console.log(`✅ Messages marked as read by ${userId} (from ${contactId})`);
+
+  //     // Notify sender so their ticks update
+  //     io.to(contactId).emit('messagesRead', { receiverId: userId });
+  //   } catch (err) {
+  //     console.error('❌ Error in markMessagesRead:', err);
+  //   }
+  // });
+
+  socket.on('markMessagesRead', async ({ userId, contactId }) => {
+  try {
+    if (!userId || !contactId) return;
+
+    // 1) Update DB and get updated docs' ids (so we can tell clients exactly which messages changed)
+    const res = await Message.find({
+      senderId: contactId,
+      receiverId: userId,
+      isRead: false,
+    }).select('_id');
+
+    const updatedIds = res.map(m => m._id.toString());
+
+    if (updatedIds.length > 0) {
+      await Message.updateMany(
+        { senderId: contactId, receiverId: userId, isRead: false },
+        { $set: { isRead: true } }
+      );
+
+      console.log(`✅ Marked ${updatedIds.length} messages as read by ${userId} from ${contactId}`);
+    }
+
+    // 2) Emit event to the sender (contactId). Include readerId and updated message ids.
+    // ensure contactId is string
+    io.to(contactId.toString()).emit('messagesRead', {
+      readerId: userId,
+      updatedMessageIds: updatedIds,
+    });
+
+    // 3) (optional) emit back to reader so their UI can be consistent
+    socket.emit('messagesMarkedLocal', { updatedMessageIds: updatedIds });
+
+  } catch (err) {
+    console.error('❌ Error in markMessagesRead:', err);
+  }
+});
 
   // Handle disconnection
   socket.on('disconnect', () => {

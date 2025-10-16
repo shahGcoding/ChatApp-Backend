@@ -1,9 +1,27 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import { Server } from 'socket.io';
+import http from 'http';
+
 
 
 const app = express();
+
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:5173', // your frontend URL
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true,
+  },
+});
+
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
 
 app.use(cors({origin: 'http://localhost:5173', credentials: true}));
 app.use(express.json());
@@ -23,4 +41,4 @@ app.use('/api/v1/messages', messageRoutes);
 
 
 
-export {app};
+export {app, server, io};
