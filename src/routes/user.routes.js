@@ -1,12 +1,23 @@
-import { registerUser, loginUser, verifyEmail, logoutUser, getUserById, getCurrentUser, getAllUsers, updateUserData, refreshAccessToken } from "../controllers/user.controller.js";
-import {Router} from "express";
+import {
+  registerUser,
+  loginUser,
+  verifyEmail,
+  logoutUser,
+  getUserById,
+  getCurrentUser,
+  getAllUsers,
+  updateUserData,
+  refreshAccessToken,
+  blockUser,
+  unblockUser,
+} from "../controllers/user.controller.js";
+import { Router } from "express";
 import { upload } from "../middlewares/multer.js";
-import {verifyJWT} from "../middlewares/auth.middleware.js";
-
+import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.post("/register", upload.single('avatar'), registerUser);
+router.post("/register", upload.single("avatar"), registerUser);
 router.post("/login", loginUser);
 router.post("/verify-email", verifyEmail);
 router.post("/logout", logoutUser);
@@ -17,6 +28,7 @@ router.route("/getuserbyid/:userId").get(getUserById);
 router.route("/getcurrentuser").get(verifyJWT, getCurrentUser);
 router.route("/getallusers").get(getAllUsers);
 router.route("/updateuserdata/:userId").put(verifyJWT, updateUserData);
-
+router.route("/blockuser/:userId/:blockUserId").put(blockUser);
+router.route("/unblockuser/:userId/:unblockUserId").put(unblockUser);
 
 export default router;

@@ -6,7 +6,6 @@ import { uploadImage, deleteImage } from "../utils/cloudinary.js";
 import { sendVerificationCode, WelcomeEmail } from "../middlewares/email.js";
 import jwt from "jsonwebtoken";
 
-
 const generateAccessAndRefreshToken = async (userId) => {
   try {
     const user = await User.findById(userId);
@@ -46,22 +45,21 @@ const registerUser = asyncHandler(async (req, res) => {
   // if (req.file){
   //   const result = await uploadImage(req.file.path);
   //   avatarUrl = result.secure_url;
-    
+
   //   import("fs").then(fs => {
   //     if (fs.exitsSync(req.file.path)) fs.unlinkSync(req.file.path);
   //   });
 
   // }
 
-   let avatarUrl = "";
+  let avatarUrl = "";
   try {
-    
     if (req.file) {
       const result = await uploadImage(req.file.path);
       avatarUrl = result.secure_url;
 
       // Remove local file
-      import("fs").then(fs => {
+      import("fs").then((fs) => {
         if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
       });
     }
@@ -95,8 +93,6 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(500, "Error registering user");
   }
 });
-
-
 
 //   const user = await User.create({
 //     username,
@@ -335,6 +331,65 @@ const updateUserData = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, user, "User updated successfully"));
 });
 
+const blockUser = asyncHandler(async (req, res) => {
+  const { userId, blockUserId } = req.params;
+
+  if (!userId || !blockUserId) {
+    throw new ApiError(400, "Both userId and blockUserId are required");
+  }
+
+  // you can't block yourself
+  if (userId === blockUserId) {
+    throw new ApiError(400, "You cannot block yourself");
+  }
+
+  const user = await User.findById(userId);
+  const blockedUser = await User.findById(blockUserId);
+
+  if (!user || !blockedUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  if (user.blockedUsers.includes(blockUserId)) {
+    throw new ApiError(400, "User is already blocked");
+  }
+
+  user.blockedUsers.push(blockUserId);
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "User blocked successfully"));
+});
+
+const unblockUser = asyncHandler(async (req, res) => {
+  const { userId, unblockUserId } = req.params;
+
+  if (!userId || !unblockUserId) {
+    throw new ApiError(400, "Both userId and unblockUserId are required");
+  }
+
+  const user = await User.findById(userId);
+  const unblockedUser = await User.findById(unblockUserId);
+
+  if (!user || !unblockedUser) {
+    throw new ApiError(404, "User not found");
+  }
+
+  if (!user.blockedUsers.includes(unblockUserId)) {
+    throw new ApiError(400, "User is not blocked");
+  }
+
+  user.blockedUsers = user.blockedUsers.filter(
+    (id) => id.toString() !== unblockUserId
+  );
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "User unblocked successfully"));
+});
+
 export {
   registerUser,
   verifyEmail,
@@ -345,4 +400,6 @@ export {
   getAllUsers,
   updateUserData,
   refreshAccessToken,
+  blockUser,
+  unblockUser,
 };

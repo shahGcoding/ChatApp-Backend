@@ -29,6 +29,14 @@ const messageSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    deleteFor: {
+        type: [String],
+        default: [],
+    },
+    isDeleted: {
+        type: Boolean,
+        default: false,
+    },
 
 }, { timestamps: true });
 

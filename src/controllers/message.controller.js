@@ -22,16 +22,26 @@ const sendMessage = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Receiver not found");
   }
 
+  if (sender.blockedUsers.includes(receiverId)) {
+    throw new ApiError(
+      403,
+      "You have blocked this user. Unblock to send messages."
+    );
+  }
+  if (receiver.blockedUsers.includes(senderId)) {
+    throw new ApiError(403, "You are blocked by this user.");
+  }
+
   let fileUrl = null;
   let finalType = type || "text";
 
-  if(req.file){
+  if (req.file) {
     try {
       const result = await uploadImage(req.file.path);
       fileUrl = result.secure_url;
       finalType = result.resource_type;
     } catch (error) {
-      if(req.file?.path && fs.existsSync(req.file.path)){
+      if (req.file?.path && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
       console.error("Error uploading file:", error);
@@ -48,9 +58,9 @@ const sendMessage = asyncHandler(async (req, res) => {
     isRead: false,
   });
 
-//   const populatedMessage = await newMessage
-//     .populate("senderId", "username email")
-//     .populate("receiverId", "username email");
+  //   const populatedMessage = await newMessage
+  //     .populate("senderId", "username email")
+  //     .populate("receiverId", "username email");
 
   // Emit the message to the receiver's room
   if (req.io) {
@@ -63,22 +73,24 @@ const sendMessage = asyncHandler(async (req, res) => {
 });
 
 const getConversation = asyncHandler(async (req, res) => {
+  const { userId, contactId } = req.params;
 
-    const { userId, contactId } = req.params;
+  if (!userId || !contactId) {
+    throw new ApiError(400, "Both IDs are required");
+  }
 
-    if (!userId || !contactId) {
-        throw new ApiError(400, "Both IDs are required");
-    }
+  const messages = await Message.find({
+    $or: [
+      { senderId: userId, receiverId: contactId },
+      { senderId: contactId, receiverId: userId },
+    ],
+  }).sort({ createdAt: 1 }); // Sort by creation time ascending
 
-    const messages = await Message.find({
-        $or: [
-            { senderId: userId, receiverId: contactId },
-            { senderId: contactId, receiverId: userId }
-        ]
-    }).sort({ createdAt: 1 }); // Sort by creation time ascending
+  const visibleMessages = messages.filter((msg) => !msg.deleteFor.includes(userId));
 
-    return res.status(200).json(new ApiResponse(200, messages, "Conversation fetched successfully"));
-
+  return res
+    .status(200)
+    .json(new ApiResponse(200, visibleMessages, "Conversation fetched successfully"));
 });
 
 const getUserConversations = asyncHandler(async (req, res) => {
@@ -126,12 +138,13 @@ const getUserConversations = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, result, "User conversations fetched successfully"));
+    .json(
+      new ApiResponse(200, result, "User conversations fetched successfully")
+    );
 });
 
-
 const markAsRead = asyncHandler(async (req, res) => {
-   try {
+  try {
     const { userId, contactId } = req.params;
 
     if (!userId || !contactId) {
@@ -145,7 +158,7 @@ const markAsRead = asyncHandler(async (req, res) => {
     );
 
     // ✅ Optional: emit to sender for live read receipts
-    req.io.to(contactId).emit("messagesRead", { receiverId: userId  });
+    req.io.to(contactId).emit("messagesRead", { receiverId: userId });
 
     res.status(200).json({
       success: true,
@@ -162,7 +175,6 @@ const markAsRead = asyncHandler(async (req, res) => {
   }
 });
 
-
 const getUserChats = asyncHandler(async (req, res) => {
   const { userId } = req.params;
 
@@ -173,24 +185,66 @@ const getUserChats = asyncHandler(async (req, res) => {
   // Build a unique contact list with the last message
   const chats = {};
   messages.forEach((msg) => {
-    const contactId = msg.senderId.toString() === userId ? msg.receiverId : msg.senderId;
+    const contactId =
+      msg.senderId.toString() === userId ? msg.receiverId : msg.senderId;
     if (!chats[contactId]) chats[contactId] = msg;
   });
 
   return res
     .status(200)
-    .json(new ApiResponse(200, Object.values(chats), "User chats fetched successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        Object.values(chats),
+        "User chats fetched successfully"
+      )
+    );
 });
 
 const deleteMessage = asyncHandler(async (req, res) => {
-  const { messageId } = req.params;
+  const { messageId, userId } = req.params;
 
-  const deleted = await Message.findByIdAndDelete(messageId);
-  if (!deleted) throw new ApiError(404, "Message not found");
+  const message = await Message.findById(messageId);
+  if (!message) throw new ApiError(404, "Message not found");
+
+  message.isDeleted = true;
+  message.message = "";
+
+  if (!message.deleteFor.includes(userId)){
+    message.deleteFor.push(userId);
+    await message.save();
+  }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, deleted, "Message deleted successfully"));
+    .json(new ApiResponse(200, message, "Message deleted successfully"));
 });
 
-export { sendMessage, getConversation, getUserConversations, markAsRead, getUserChats, deleteMessage };
+const deleteConversation = asyncHandler(async (req, res) => {
+  const { userId, contactId } = req.params;
+
+  if (!userId || !contactId) {
+    throw new ApiError(400, "Both IDs are required");
+  }
+
+  const result = await Message.deleteMany({
+    $or: [
+      { senderId: userId, receiverId: contactId },
+      { senderId: contactId, receiverId: userId },
+    ],
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, result, "Conversation deleted successfully"));
+});
+
+export {
+  sendMessage,
+  getConversation,
+  getUserConversations,
+  markAsRead,
+  getUserChats,
+  deleteMessage,
+  deleteConversation,
+};
